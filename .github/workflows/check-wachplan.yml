@@ -1,0 +1,66 @@
+name: ZWRD-K Wachplan-Check
+
+on:
+  schedule:
+    # Alle 2 Stunden (UTC) → 00:00, 02:00, 04:00, ... 22:00 UTC
+    - cron: "0 */2 * * *"
+  # Manuell auslösen über GitHub UI (zum Testen)
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Trockenlauf (keine E-Mail senden)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+
+jobs:
+  check:
+    name: Wachpläne prüfen
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js einrichten
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Abhängigkeiten installieren
+        run: npm ci
+
+      - name: Playwright-Browser installieren
+        run: npx playwright install chromium --with-deps
+
+      # State-Datei aus Cache laden (enthält letzten bekannten Status)
+      - name: State-Cache laden
+        uses: actions/cache@v4
+        with:
+          path: state.json
+          key: wachplan-state-v1
+          restore-keys: |
+            wachplan-state-v1
+
+      - name: Wachpläne prüfen
+        env:
+          ZWRD_EMAIL: ${{ secrets.ZWRD_EMAIL }}
+          ZWRD_PASSWORD: ${{ secrets.ZWRD_PASSWORD }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+          MAIL_FROM: ${{ secrets.MAIL_FROM }}
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        run: npm run check
+
+      # State-Datei nach dem Lauf in Cache zurückschreiben
+      - name: State-Cache speichern
+        uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: state.json
+          key: wachplan-state-v1-${{ github.run_id }}
