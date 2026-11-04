@@ -176,12 +176,12 @@ async function checkWachplaene(): Promise<CalendarResult[]> {
 // E-Mail
 // ---------------------------------------------------------------------------
 
-async function sendNotification(
+async function sendStatusMail(
   newlyAvailable: CalendarResult[],
   allResults: CalendarResult[]
 ): Promise<void> {
   if (DRY_RUN) {
-    console.log("[DRY RUN] E-Mail würde gesendet für:", newlyAvailable.map((r) => r.id));
+    console.log("[DRY RUN] Status-E-Mail würde jetzt gesendet.");
     return;
   }
 
@@ -192,17 +192,45 @@ async function sendNotification(
 
   const resend = new Resend(RESEND_API_KEY);
 
-  const planRows = newlyAvailable
-    .map(
-      (r) =>
-        `<tr>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">${r.id}</td>
-          <td style="padding:8px 12px;border-bottom:1px solid #e5e7eb;">
+  const hasNew = newlyAvailable.length > 0;
+  const errorCount = allResults.filter((r) => r.status === "error").length;
+  const availableCount = allResults.filter((r) => r.status === "available").length;
+
+  // Subject line
+  let subject: string;
+  if (hasNew) {
+    subject = `🏖️ ZWRD-K: ${newlyAvailable.length} Wachplan${newlyAvailable.length > 1 ? "pläne" : ""} neu verfügbar`;
+  } else if (errorCount > 0) {
+    subject = `⚠️ ZWRD-K: Statusbericht – ${errorCount} Fehler`;
+  } else {
+    subject = `✅ ZWRD-K: Statusbericht – alles geprüft, keine neuen Pläne`;
+  }
+
+  // Optional "newly available" highlight box
+  const newlyAvailableSection = hasNew
+    ? `<div style="background:#dcfce7;border:1px solid #16a34a;border-radius:8px;padding:16px;margin:20px 0;">
+    <strong style="color:#15803d;">Neu verfügbare Wachpläne:</strong>
+    <table style="width:100%;border-collapse:collapse;margin-top:12px;">
+      <thead>
+        <tr style="background:#f0fdf4;">
+          <th style="text-align:left;padding:8px 12px;font-size:12px;color:#6b7280;">ID</th>
+          <th style="text-align:left;padding:8px 12px;font-size:12px;color:#6b7280;">URL</th>
+        </tr>
+      </thead>
+      <tbody>${newlyAvailable
+        .map(
+          (r) =>
+            `<tr>
+          <td style="padding:8px 12px;border-bottom:1px solid #bbf7d0;">${r.id}</td>
+          <td style="padding:8px 12px;border-bottom:1px solid #bbf7d0;">
             <a href="${r.url}" style="color:#1d4ed8;">${r.url}</a>
           </td>
         </tr>`
-    )
-    .join("");
+        )
+        .join("")}</tbody>
+    </table>
+  </div>`
+    : "";
 
   const allRows = allResults
     .map((r) => {
@@ -234,26 +262,19 @@ async function sendNotification(
 <head><meta charset="utf-8"></head>
 <body style="font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#111827;">
   <h1 style="font-size:20px;font-weight:700;margin-bottom:4px;">
-    🏖️ ZWRD-K Wachplan verfügbar!
+    ZWRD-K Wachplan-Monitor
   </h1>
   <p style="color:#6b7280;margin-top:0;">
     ${new Date().toLocaleString("de-DE", { timeZone: "Europe/Berlin" })}
   </p>
 
-  <div style="background:#dcfce7;border:1px solid #16a34a;border-radius:8px;padding:16px;margin:20px 0;">
-    <strong>Neu verfügbare Wachpläne:</strong>
-    <table style="width:100%;border-collapse:collapse;margin-top:12px;">
-      <thead>
-        <tr style="background:#f9fafb;">
-          <th style="text-align:left;padding:8px 12px;font-size:12px;color:#6b7280;">ID</th>
-          <th style="text-align:left;padding:8px 12px;font-size:12px;color:#6b7280;">URL</th>
-        </tr>
-      </thead>
-      <tbody>${planRows}</tbody>
-    </table>
-  </div>
+  ${newlyAvailableSection}
 
-  <h2 style="font-size:16px;font-weight:600;margin-top:28px;">Gesamtübersicht</h2>
+  <h2 style="font-size:16px;font-weight:600;margin-top:${hasNew ? "28" : "8"}px;">Gesamtübersicht</h2>
+  <p style="color:#6b7280;font-size:13px;margin-top:0;">
+    ${availableCount} von ${allResults.length} geprüften Plänen verfügbar
+    ${errorCount > 0 ? ` · <span style="color:#d97706;">${errorCount} Fehler</span>` : ""}
+  </p>
   <table style="width:100%;border-collapse:collapse;">
     <thead>
       <tr style="background:#f9fafb;">
@@ -274,7 +295,7 @@ async function sendNotification(
   const { error } = await resend.emails.send({
     from: MAIL_FROM,
     to: MAIL_TO,
-    subject: `✅ ZWRD-K: ${newlyAvailable.length} Wachplan${newlyAvailable.length > 1 ? "pläne" : ""} jetzt verfügbar`,
+    subject,
     html,
   });
 
@@ -313,10 +334,10 @@ async function main(): Promise<void> {
 
   if (newlyAvailable.length > 0) {
     console.log("\nNeu verfügbare Pläne:", newlyAvailable.map((r) => r.id).join(", "));
-    await sendNotification(newlyAvailable, results);
   } else {
-    console.log("\nKeine neuen Wachpläne – keine E-Mail notwendig.");
+    console.log("\nKeine neuen Wachpläne.");
   }
+  await sendStatusMail(newlyAvailable, results);
 
   // Update state (only update known statuses, keep errors from overwriting last good state)
   const newState: StateMap = { ...previousState };
