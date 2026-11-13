@@ -46,6 +46,7 @@ keywords = [
     "Fehler:",
     "Neu verfügbar",
     "E-Mail gesendet",
+    "Status-E-Mail würde",
     "Keine neuen Wachpläne",
     "State gespeichert",
 ]

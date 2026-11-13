@@ -4,6 +4,8 @@ on:
   schedule:
     # Alle 2 Stunden (UTC) → 00:00, 02:00, 04:00, ... 22:00 UTC
     - cron: "0 */2 * * *"
+    # Wöchentlicher Montagsbericht um 08:00 Uhr MEZ (= 07:00 UTC)
+    - cron: "0 7 * * 1"
   # Manuell auslösen über GitHub UI (zum Testen)
   workflow_dispatch:
     inputs:
@@ -55,6 +57,8 @@ jobs:
           MAIL_TO: ${{ secrets.MAIL_TO }}
           MAIL_FROM: ${{ secrets.MAIL_FROM }}
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+          # Wöchentlicher Bericht wenn der Cron montags um 07:00 UTC ausgelöst wird
+          WEEKLY_REPORT: ${{ github.event.schedule == '0 7 * * 1' && 'true' || 'false' }}
         run: npm run check
 
       # State-Datei nach dem Lauf in Cache zurückschreiben

@@ -30,6 +30,7 @@ const LOGIN_URL = `${BASE_URL}/login`;
 const CALENDAR_IDS = [9990, 9991, 9992, 9994, 9995, 9996, 9997, 9998, 9999];
 const STATE_FILE = path.resolve("state.json");
 const DRY_RUN = process.env.DRY_RUN === "true";
+const WEEKLY_REPORT = process.env.WEEKLY_REPORT === "true";
 
 const ZWRD_EMAIL = process.env.ZWRD_EMAIL ?? "";
 const ZWRD_PASSWORD = process.env.ZWRD_PASSWORD ?? "";
@@ -178,8 +179,17 @@ async function checkWachplaene(): Promise<CalendarResult[]> {
 
 async function sendStatusMail(
   newlyAvailable: CalendarResult[],
-  allResults: CalendarResult[]
+  allResults: CalendarResult[],
+  isWeeklyReport: boolean
 ): Promise<void> {
+  const hasNew = newlyAvailable.length > 0;
+
+  // Nur senden wenn neue Pläne gefunden wurden ODER es der wöchentliche Montagsbericht ist
+  if (!hasNew && !isWeeklyReport) {
+    console.log("Keine neuen Wachpläne – E-Mail wird nicht gesendet.");
+    return;
+  }
+
   if (DRY_RUN) {
     console.log("[DRY RUN] Status-E-Mail würde jetzt gesendet.");
     return;
@@ -192,7 +202,6 @@ async function sendStatusMail(
 
   const resend = new Resend(RESEND_API_KEY);
 
-  const hasNew = newlyAvailable.length > 0;
   const errorCount = allResults.filter((r) => r.status === "error").length;
   const availableCount = allResults.filter((r) => r.status === "available").length;
 
@@ -200,10 +209,10 @@ async function sendStatusMail(
   let subject: string;
   if (hasNew) {
     subject = `🏖️ ZWRD-K: ${newlyAvailable.length} Wachplan${newlyAvailable.length > 1 ? "pläne" : ""} neu verfügbar`;
-  } else if (errorCount > 0) {
-    subject = `⚠️ ZWRD-K: Statusbericht – ${errorCount} Fehler`;
+  } else if (isWeeklyReport && errorCount > 0) {
+    subject = `⚠️ ZWRD-K: Wochenbericht – ${errorCount} Fehler`;
   } else {
-    subject = `✅ ZWRD-K: Statusbericht – alles geprüft, keine neuen Pläne`;
+    subject = `📋 ZWRD-K: Wochenbericht – ${availableCount} von ${allResults.length} Plänen verfügbar`;
   }
 
   // Optional "newly available" highlight box
@@ -256,13 +265,17 @@ async function sendStatusMail(
     })
     .join("");
 
+  const headline = isWeeklyReport && !hasNew
+    ? "ZWRD-K Wachplan-Monitor · Wochenbericht"
+    : "ZWRD-K Wachplan-Monitor";
+
   const html = `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"></head>
 <body style="font-family:system-ui,sans-serif;max-width:640px;margin:0 auto;padding:24px;color:#111827;">
   <h1 style="font-size:20px;font-weight:700;margin-bottom:4px;">
-    ZWRD-K Wachplan-Monitor
+    ${headline}
   </h1>
   <p style="color:#6b7280;margin-top:0;">
     ${new Date().toLocaleString("de-DE", { timeZone: "Europe/Berlin" })}
@@ -337,7 +350,7 @@ async function main(): Promise<void> {
   } else {
     console.log("\nKeine neuen Wachpläne.");
   }
-  await sendStatusMail(newlyAvailable, results);
+  await sendStatusMail(newlyAvailable, results, WEEKLY_REPORT);
 
   // Update state (only update known statuses, keep errors from overwriting last good state)
   const newState: StateMap = { ...previousState };
